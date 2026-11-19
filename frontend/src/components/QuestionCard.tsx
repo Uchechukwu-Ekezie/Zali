@@ -2,25 +2,50 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { QuestionCardProps } from '@/types/components';
 import type { Question } from '@/data/questions';
+import { trackEvent, ANALYTICS_EVENTS } from '@/lib/analytics';
 
-interface QuestionCardProps {
-  question: Question;
-  questionNumber: number;
-  totalQuestions: number;
-  onAnswer: (answerIndex: number) => void;
+/**
+ * QuestionCard displays a trivia question with multiple choice options
+ * 
+ * Core component for the trivia game. Handles question display, answer selection,
+ * animation, and analytics tracking. Supports difficulty levels, categories, and
+ * animated option display.
+ * 
+ * @component
+ * @example
+ * <QuestionCard 
+ *   question={question}
+ *   questionNumber={1}
+ *   totalQuestions={10}
+ *   onAnswer={handleAnswer}
+ * />
+ * 
+ * @see Question type in @/data/questions
+ * @see QuestionCardProps type in @/types/components
+ */
+type OptionLabel = 'A' | 'B' | 'C' | 'D';
+
+/**
+ * Extended props for QuestionCard with additional control options
+ */
+interface ExtendedQuestionCardProps extends QuestionCardProps {
+  /** Whether the component is disabled (user cannot select answers) */
   disabled?: boolean;
 }
 
-const optionLabels = ['A', 'B', 'C', 'D'];
+const optionLabels: readonly OptionLabel[] = ['A', 'B', 'C', 'D'] as const;
 
 export default function QuestionCard({
   question,
   questionNumber,
   totalQuestions,
   onAnswer,
-  disabled = false
-}: QuestionCardProps) {
+  disabled = false,
+  className = '',
+  'data-testid': testId
+}: ExtendedQuestionCardProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
   // Safety check for undefined question
@@ -33,10 +58,19 @@ export default function QuestionCard({
     );
   }
 
-  const handleSelect = (index: number) => {
+  const handleSelect = (index: number): void => {
     if (disabled || selectedIndex !== null) return;
     
     setSelectedIndex(index);
+    
+    // Track the answer distribution
+    trackEvent(ANALYTICS_EVENTS.QUESTION_ANSWERED, {
+      questionId: question.id,
+      category: question.category,
+      difficulty: question.difficulty,
+      answerIndex: index,
+      isCorrect: index === question.correctAnswer,
+    });
     
     // Add slight delay for visual feedback before calling onAnswer
     setTimeout(() => {
@@ -45,32 +79,35 @@ export default function QuestionCard({
   };
 
   return (
-    <motion.div
+    <motion.fieldset
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="w-full max-w-3xl mx-auto"
+      className={`w-full max-w-3xl mx-auto ${className}`}
+      disabled={disabled}
+      data-testid={testId}
     >
       {/* Question Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-600">
+          <span className="text-sm font-medium text-gray-600" aria-label={`Question ${questionNumber} of ${totalQuestions}`}>
             Question {questionNumber} of {totalQuestions}
           </span>
-          <span className="text-xs px-3 py-1 bg-green-100 text-green-700 rounded-full font-medium">
+          <span className="text-xs px-3 py-1 bg-green-100 text-green-700 rounded-full font-medium" aria-label={`Category: ${question.category}`}>
             {question.category}
           </span>
         </div>
         
-        <h2 className="text-2xl md:text-3xl font-bold text-gray-900 leading-tight">
+        <legend className="text-2xl md:text-3xl font-bold text-gray-900 leading-tight mb-6">
           {question.question}
-        </h2>
+        </legend>
       </div>
 
       {/* Options */}
-      <div className="space-y-3">
-        {question.options.map((option, index) => {
-          const isSelected = selectedIndex === index;
+      <div className="space-y-3" role="group" aria-label="Answer options">
+        {question.options.map((option: string, index: number) => {
+          const isSelected: boolean = selectedIndex === index;
+          const optionLabel: OptionLabel = optionLabels[index] as OptionLabel;
           
           return (
             <motion.button
@@ -80,15 +117,18 @@ export default function QuestionCard({
               whileHover={selectedIndex === null ? { scale: 1.02 } : {}}
               whileTap={selectedIndex === null ? { scale: 0.98 } : {}}
               className={`
-                w-full text-left p-4 md:p-5 rounded-xl border-2 transition-all duration-200
+                w-full text-left p-4 md:p-5 rounded-xl border-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2
                 ${isSelected
-                  ? 'bg-green-600 text-white border-green-600 shadow-lg'
+                  ? 'bg-green-600 text-white border-green-600 shadow-lg focus:ring-green-800'
                   : selectedIndex !== null
                   ? 'bg-gray-50 border-gray-200 opacity-50 cursor-not-allowed'
-                  : 'bg-white border-gray-200 hover:border-green-400 hover:shadow-md cursor-pointer'
+                  : 'bg-white border-gray-200 hover:border-green-400 hover:shadow-md cursor-pointer focus:ring-green-500'
                 }
                 ${disabled ? 'cursor-not-allowed opacity-50' : ''}
               `}
+              aria-label={`Option ${optionLabel}: ${option}${isSelected ? ' (selected)' : ''}`}
+              aria-pressed={isSelected}
+              type="button"
             >
               <div className="flex items-center gap-4">
                 {/* Option Label */}
@@ -101,7 +141,7 @@ export default function QuestionCard({
                     }
                   `}
                 >
-                  {optionLabels[index]}
+                  {optionLabel}
                 </div>
                 
                 {/* Option Text */}
@@ -115,6 +155,7 @@ export default function QuestionCard({
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     className="flex-shrink-0"
+                    aria-hidden="true"
                   >
                     <svg
                       className="w-6 h-6 text-white"
@@ -146,10 +187,11 @@ export default function QuestionCard({
             ${question.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-700' : ''}
             ${question.difficulty === 'hard' ? 'bg-red-100 text-red-700' : ''}
           `}
+          aria-label={`Difficulty: ${question.difficulty}`}
         >
           {question.difficulty.charAt(0).toUpperCase() + question.difficulty.slice(1)}
         </span>
       </div>
-    </motion.div>
+    </motion.fieldset>
   );
 }

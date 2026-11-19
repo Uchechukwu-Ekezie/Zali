@@ -2,67 +2,67 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title Faucet
- * @dev A contract that distributes test cUSD tokens to users (one-time claim)
+ * @dev A contract that distributes test USDC tokens to users (one-time claim)
  */
 contract Faucet is Ownable, ReentrancyGuard {
-    IERC20 public cUSDToken;
-    uint256 public constant CLAIM_AMOUNT = 10 * 10**18; // 10 cUSD (18 decimals)
+    using SafeERC20 for IERC20;
+    
+    // Custom Errors
+    error InvalidTokenAddress();
+    error AlreadyClaimed();
+    error InsufficientContractBalance();
+    error InsufficientBalance();
+    
+    IERC20 public usdcToken;
+    uint256 public constant CLAIM_AMOUNT = 10 * 10**6; // 10 USDC (6 decimals)
     mapping(address => bool) public hasClaimed;
 
     event TokensClaimed(address indexed recipient, uint256 amount);
     event TokensWithdrawn(address indexed owner, uint256 amount);
 
     /**
-     * @dev Constructor sets the cUSD token address
-     * @param _cUSDTokenAddress Address of the cUSD token contract
+     * @dev Constructor sets the USDC token address
+     * @param _usdcTokenAddress Address of the USDC token contract
      */
-    constructor(address _cUSDTokenAddress) Ownable(msg.sender) {
-        require(_cUSDTokenAddress != address(0), "Invalid token address");
-        cUSDToken = IERC20(_cUSDTokenAddress);
+    constructor(address _usdcTokenAddress) Ownable(msg.sender) {
+        if (_usdcTokenAddress == address(0)) revert InvalidTokenAddress();
+        usdcToken = IERC20(_usdcTokenAddress);
     }
 
     /**
-     * @dev Allows users to claim their test cUSD tokens (one-time only)
+     * @dev Allows users to claim their test USDC tokens (one-time only)
      */
     function claim() external nonReentrant {
-        require(!hasClaimed[msg.sender], "Already claimed");
-        require(
-            cUSDToken.balanceOf(address(this)) >= CLAIM_AMOUNT,
-            "Insufficient contract balance"
-        );
+        if (hasClaimed[msg.sender]) revert AlreadyClaimed();
+        if (usdcToken.balanceOf(address(this)) < CLAIM_AMOUNT) revert InsufficientContractBalance();
 
         hasClaimed[msg.sender] = true;
-        require(
-            cUSDToken.transfer(msg.sender, CLAIM_AMOUNT),
-            "Transfer failed"
-        );
+        usdcToken.safeTransfer(msg.sender, CLAIM_AMOUNT);
 
         emit TokensClaimed(msg.sender, CLAIM_AMOUNT);
     }
 
     /**
-     * @dev Allows the owner to withdraw any remaining cUSD tokens
+     * @dev Allows the owner to withdraw any remaining USDC tokens
      * @param amount Amount of tokens to withdraw
      */
     function withdrawTokens(uint256 amount) external onlyOwner {
-        require(
-            cUSDToken.balanceOf(address(this)) >= amount,
-            "Insufficient balance"
-        );
-        require(cUSDToken.transfer(owner(), amount), "Transfer failed");
+        if (usdcToken.balanceOf(address(this)) < amount) revert InsufficientBalance();
+        usdcToken.safeTransfer(owner(), amount);
         emit TokensWithdrawn(owner(), amount);
     }
 
     /**
-     * @dev Returns the contract's cUSD balance
+     * @dev Returns the contract's USDC balance
      */
     function getContractBalance() external view returns (uint256) {
-        return cUSDToken.balanceOf(address(this));
+        return usdcToken.balanceOf(address(this));
     }
 
     /**

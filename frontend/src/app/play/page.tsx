@@ -5,7 +5,9 @@ import { useAccount } from 'wagmi';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { usePlayerRegistration, useGameSession, useCeloBalance, useContractInfo, useQuestions } from '@/hooks/useContract';
+import { usePlayerRegistration, useGameSession, useContractInfo, useQuestions } from '@/hooks/useGameQueries';
+import { PlayerInfoSkeleton, StatsCardSkeleton } from '@/components/skeletons';
+import { LoadingButton, LoadingCard, useLoading } from '@/components/loading';
 import { GAME_CONSTANTS } from '@/config/contracts';
 
 
@@ -13,6 +15,7 @@ export default function PlayPage() {
   const { address, isConnected } = useAccount();
   const router = useRouter();
   const [isStarting, setIsStarting] = useState(false);
+  const { setLoading, clearLoading } = useLoading({ component: 'play-page' });
   
   const { isRegistered, playerInfo, refetchPlayerInfo } = usePlayerRegistration();
 
@@ -42,22 +45,24 @@ export default function PlayPage() {
   // Redirect to game on successful start
   useEffect(() => {
     if (startGameIsSuccess && isStarting) {
+      clearLoading();
       toast.dismiss();
       toast.success('Game started! Loading questions...');
       setIsStarting(false);
       router.push('/play/game');
     }
-  }, [startGameIsSuccess, router, isStarting]);
+  }, [startGameIsSuccess, router, isStarting, clearLoading]);
 
   // Handle start error
   useEffect(() => {
     if (startGameError && isStarting) {
+      clearLoading();
       toast.dismiss();
       const errorMessage = startGameError?.message || 'Failed to start game';
       toast.error(errorMessage.includes('User rejected') ? 'Transaction cancelled' : 'Failed to start game. Please try again.');
       setIsStarting(false);
     }
-  }, [startGameError, isStarting]);
+  }, [startGameError, isStarting, clearLoading]);
 
   const handleStartPlaying = async () => {
     if (!isConnected || !address) {
@@ -79,36 +84,28 @@ export default function PlayPage() {
     }
 
     setIsStarting(true);
+    setLoading(true, 'Preparing game...');
 
     try {
       // Check if approval is needed
       if (needsApproval) {
-        toast.loading('Approving tokens... Please confirm the transaction in your wallet', {
-          id: 'approval-loading',
-          duration: 60000,
-        });
+        setLoading(true, 'Approving tokens... Please confirm the transaction', 25);
         
         try {
           await approve();
-          // Wait for approval to complete
-          toast.loading('Waiting for approval confirmation...', {
-            id: 'approval-waiting',
-            duration: 60000,
-          });
+          setLoading(true, 'Waiting for approval confirmation...', 50);
           
-          // Refetch allowance to check if approval went through
-          // In a real scenario, you might want to poll or use events
+          // Wait for approval to complete
           await new Promise(resolve => setTimeout(resolve, 3000));
           await refetchAllowance();
           
-          toast.dismiss('approval-waiting');
+          setLoading(true, 'Approval successful! Starting game...', 75);
           toast.success('Token approval successful!');
           
           // Small delay before starting game
           await new Promise(resolve => setTimeout(resolve, 1000));
         } catch (approvalError: any) {
-          toast.dismiss('approval-loading');
-          toast.dismiss('approval-waiting');
+          clearLoading();
           console.error('Approval error:', approvalError);
           
           // Use the enhanced error message from the hook
@@ -132,17 +129,13 @@ export default function PlayPage() {
       }
 
       // Now start the game
-      toast.loading('Starting game... Please confirm the transaction', {
-        id: 'start-game-loading',
-        duration: 60000,
-      });
+      setLoading(true, 'Starting game... Please confirm the transaction', 90);
       
       await startGame();
+      setLoading(true, 'Game started successfully!', 100);
     } catch (error: any) {
       console.error('Error starting game:', error);
-      toast.dismiss('start-game-loading');
-      toast.dismiss('approval-loading');
-      toast.dismiss('approval-waiting');
+      clearLoading();
       
       const errorMessage = error?.message || 'Failed to start game. Please try again.';
       
@@ -186,41 +179,47 @@ export default function PlayPage() {
         </div>
         
         {/* User Info (if registered) */}
-        {isRegistered && username && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-2xl shadow-lg p-6 mb-8 border-2 border-purple-200"
-          >
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-              <div className="text-center md:text-left">
-                <p className="text-sm text-gray-600">Welcome back,</p>
-                <h2 className="text-2xl font-bold text-gray-900">{username}</h2>
-              </div>
-              <div className="grid grid-cols-3 gap-6">
-                <div className="text-center">
-                  <p className="text-sm text-gray-600">Total Score</p>
-                  <p className="text-xl font-bold text-purple-600">{totalScore.toString()}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm text-gray-600">Games Played</p>
-                  <p className="text-xl font-bold text-blue-600">{gamesPlayed.toString()}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm text-gray-600">CELO Balance</p>
-                  <p className="text-xl font-bold text-green-600">{balance}</p>
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 text-center">
-              <button
-                onClick={() => router.push('/rewards')}
-                className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white px-4 py-2 rounded-lg font-medium transition-all"
+        {isConnected && (
+          <>
+            {!isRegistered ? null : username ? (
+              <motion.div
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-2xl shadow-lg p-6 mb-8 border-2 border-purple-200"
               >
-                💰 View & Claim Rewards
-              </button>
-            </div>
-          </motion.div>
+                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                  <div className="text-center md:text-left">
+                    <p className="text-sm text-gray-600">Welcome back,</p>
+                    <h2 className="text-2xl font-bold text-gray-900">{username}</h2>
+                  </div>
+                  <div className="grid grid-cols-3 gap-6">
+                    <div className="text-center">
+                      <p className="text-sm text-gray-600">Total Score</p>
+                      <p className="text-xl font-bold text-purple-600">{totalScore.toString()}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm text-gray-600">Games Played</p>
+                      <p className="text-xl font-bold text-blue-600">{gamesPlayed.toString()}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm text-gray-600">CELO Balance</p>
+                      <p className="text-xl font-bold text-green-600">{balance}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 text-center">
+                  <button
+                    onClick={() => router.push('/rewards')}
+                    className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white px-4 py-2 rounded-lg font-medium transition-all"
+                  >
+                    💰 View & Claim Rewards
+                  </button>
+                </div>
+              </motion.div>
+            ) : (
+              <PlayerInfoSkeleton />
+            )}
+          </>
         )}
 
         {/* Registration Required Notice */}
@@ -291,10 +290,30 @@ export default function PlayPage() {
             </div>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-              <button
+              <LoadingButton
                 onClick={handleStartPlaying}
-                disabled={!isConnected || !isRegistered || startGameIsLoading || isStarting || isApprovalLoading}
-                className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold py-4 px-8 rounded-xl text-lg transition-all shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none disabled:cursor-not-allowed min-w-[250px]"
+                disabled={!isConnected || !isRegistered}
+                isLoading={startGameIsLoading || isStarting || isApprovalLoading}
+                loadingText={
+                  !isConnected 
+                    ? '🔌 Connect Wallet First'
+                    : !isRegistered
+                      ? '👤 Register First'
+                      : isApprovalLoading || isApproving || isWaitingForApproval
+                        ? isApproving
+                          ? 'Approving Tokens...'
+                          : isWaitingForApproval
+                            ? 'Waiting for Approval...'
+                            : 'Checking Approval...'
+                        : startGameIsLoading || isStarting
+                          ? 'Starting Game...'
+                          : needsApproval
+                            ? 'Approve & Start Game'
+                            : 'Start Playing (FREE)'
+                }
+                variant="primary"
+                size="lg"
+                className="min-w-[250px] bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
               >
                 {!isConnected 
                   ? '🔌 Connect Wallet First'
@@ -312,7 +331,7 @@ export default function PlayPage() {
                           ? '🔐 Approve & Start Game'
                           : '🎮 Start Playing (FREE)'
                 }
-              </button>
+              </LoadingButton>
             </div>
             
             {isConnected && isRegistered && (
@@ -341,42 +360,46 @@ export default function PlayPage() {
         </motion.div>
         
         {/* Rewards Info */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white rounded-2xl shadow-xl p-8 mb-12"
-        >
-          <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">
-            💰 Earning Potential
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="text-center p-4 bg-green-50 rounded-xl">
-              <div className="text-3xl mb-2">✅</div>
-              <h3 className="font-semibold text-gray-900 mb-2">Per Correct Answer</h3>
-              <p className="text-2xl font-bold text-green-600 mb-1">
-                {GAME_CONSTANTS.REWARD_PER_CORRECT} CELO
-              </p>
-              <p className="text-sm text-gray-600">Earn for each right answer</p>
+        {!isConnected ? (
+          <StatsCardSkeleton count={3} />
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-white rounded-2xl shadow-xl p-8 mb-12"
+          >
+            <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">
+              💰 Earning Potential
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="text-center p-4 bg-green-50 rounded-xl">
+                <div className="text-3xl mb-2">✅</div>
+                <h3 className="font-semibold text-gray-900 mb-2">Per Correct Answer</h3>
+                <p className="text-2xl font-bold text-green-600 mb-1">
+                  {GAME_CONSTANTS.REWARD_PER_CORRECT} CELO
+                </p>
+                <p className="text-sm text-gray-600">Earn for each right answer</p>
+              </div>
+              <div className="text-center p-4 bg-purple-50 rounded-xl">
+                <div className="text-3xl mb-2">🎯</div>
+                <h3 className="font-semibold text-gray-900 mb-2">Perfect Score Bonus</h3>
+                <p className="text-2xl font-bold text-purple-600 mb-1">
+                  {GAME_CONSTANTS.PERFECT_SCORE_BONUS} CELO
+                </p>
+                <p className="text-sm text-gray-600">Get all 10 correct!</p>
+              </div>
+              <div className="text-center p-4 bg-blue-50 rounded-xl">
+                <div className="text-3xl mb-2">⚡</div>
+                <h3 className="font-semibold text-gray-900 mb-2">Speed Bonus</h3>
+                <p className="text-2xl font-bold text-blue-600 mb-1">
+                  Up to {GAME_CONSTANTS.MAX_SPEED_BONUS} CELO
+                </p>
+                <p className="text-sm text-gray-600">Answer faster!</p>
+              </div>
             </div>
-            <div className="text-center p-4 bg-purple-50 rounded-xl">
-              <div className="text-3xl mb-2">🎯</div>
-              <h3 className="font-semibold text-gray-900 mb-2">Perfect Score Bonus</h3>
-              <p className="text-2xl font-bold text-purple-600 mb-1">
-                {GAME_CONSTANTS.PERFECT_SCORE_BONUS} CELO
-              </p>
-              <p className="text-sm text-gray-600">Get all 10 correct!</p>
-            </div>
-            <div className="text-center p-4 bg-blue-50 rounded-xl">
-              <div className="text-3xl mb-2">⚡</div>
-              <h3 className="font-semibold text-gray-900 mb-2">Speed Bonus</h3>
-              <p className="text-2xl font-bold text-blue-600 mb-1">
-                Up to {GAME_CONSTANTS.MAX_SPEED_BONUS} CELO
-              </p>
-              <p className="text-sm text-gray-600">Answer faster!</p>
-            </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
 
         {/* How It Works Section */}
         <motion.div

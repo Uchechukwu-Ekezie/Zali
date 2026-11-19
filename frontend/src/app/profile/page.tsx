@@ -1,11 +1,15 @@
 'use client';
 
-import { useState } from 'react';
-import { usePlayerRegistration, useRewards, useCeloBalance } from '@/hooks/useContract';
+import { useState, useEffect } from 'react';
+import { usePlayerRegistration } from '@/hooks/useGameQueries';
+import { useRewards } from '@/hooks/useRewardManagement';
 import { useAccount } from 'wagmi';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
+import { sanitizeUsername } from '@/utils/sanitize';
+import { PlayerInfoSkeleton, StatsCardSkeleton } from '@/components/skeletons';
+import { useStore } from '@/store';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -13,6 +17,8 @@ export default function ProfilePage() {
   const { playerInfo, isRegistered, updateUsername, updateIsLoading } = usePlayerRegistration();
   const { pendingRewards } = useRewards();
   const { balance } = useCeloBalance();
+  
+  const { achievements } = useStore();
   
   const [isEditing, setIsEditing] = useState(false);
   const [newUsername, setNewUsername] = useState('');
@@ -72,17 +78,21 @@ export default function ProfilePage() {
     : '0';
 
   const handleUpdateUsername = async () => {
-    if (!newUsername || newUsername.length < 3 || newUsername.length > 20) {
-      toast.error('Username must be 3-20 characters');
+    const sanitizedUsername = sanitizeUsername(newUsername);
+    
+    if (!sanitizedUsername || sanitizedUsername.length < 3) {
+      toast.error('Username must be at least 3 characters');
       return;
     }
 
     try {
-      toast.loading('Updating username... (costs 0.01 CELO)', {
+      const loadingToast = toast.loading('Updating username... (costs 0.01 CELO)', {
         duration: 60000,
       });
-      updateUsername(newUsername);
-      toast.dismiss();
+      
+      await updateUsername(sanitizedUsername);
+      
+      toast.dismiss(loadingToast);
       toast.success('Username updated successfully!');
       setIsEditing(false);
       setNewUsername('');
@@ -177,57 +187,83 @@ export default function ProfilePage() {
         </motion.div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="bg-white p-6 rounded-2xl shadow-lg"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-700">CELO Balance</h3>
-              <div className="text-3xl">💎</div>
-            </div>
-            <p className="text-3xl font-bold text-blue-600 mb-1">{balance}</p>
-            <p className="text-sm text-gray-600">Current wallet balance</p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-white p-6 rounded-2xl shadow-lg"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-700">Pending Rewards</h3>
-              <div className="text-3xl">🎁</div>
-            </div>
-            <p className="text-3xl font-bold text-green-600 mb-1">{pendingRewards}</p>
-            <p className="text-sm text-gray-600">Ready to claim</p>
-            <button
-              onClick={() => router.push('/rewards')}
-              className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors text-sm"
+        {!username ? (
+          <StatsCardSkeleton count={3} />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="bg-white p-6 rounded-2xl shadow-lg"
             >
-              Claim Now
-            </button>
-          </motion.div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-700">CELO Balance</h3>
+                <div className="text-3xl">💎</div>
+              </div>
+              <p className="text-3xl font-bold text-blue-600 mb-1">{balance}</p>
+              <p className="text-sm text-gray-600">Current wallet balance</p>
+            </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="bg-white p-6 rounded-2xl shadow-lg"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-700">Accuracy</h3>
-              <div className="text-3xl">🎯</div>
-            </div>
-            <p className="text-3xl font-bold text-purple-600 mb-1">{accuracy}%</p>
-            <p className="text-sm text-gray-600">
-              {correctAnswers.toString()}/{totalQuestions.toString()} correct
-            </p>
-          </motion.div>
-        </div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="bg-white p-6 rounded-2xl shadow-lg"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-700">Pending Rewards</h3>
+                <div className="text-3xl">🎁</div>
+              </div>
+              <p className="text-3xl font-bold text-green-600 mb-1">{pendingRewards}</p>
+              <p className="text-sm text-gray-600">Ready to claim</p>
+              <button
+                onClick={() => router.push('/rewards')}
+                className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors text-sm"
+              >
+                Claim Now
+              </button>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="bg-white p-6 rounded-2xl shadow-lg"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-700">Accuracy</h3>
+                <div className="text-3xl">🎯</div>
+              </div>
+              <p className="text-3xl font-bold text-purple-600 mb-1">{accuracy}%</p>
+              <p className="text-sm text-gray-600">
+                {correctAnswers.toString()}/{totalQuestions.toString()} correct
+              </p>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              className="bg-white p-6 rounded-2xl shadow-lg"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-700">Achievements</h3>
+                <div className="text-3xl">🏆</div>
+              </div>
+              <p className="text-3xl font-bold text-orange-600 mb-1">{achievements.filter(a => a.isUnlocked).length}</p>
+              <p className="text-sm text-gray-600">
+                {achievements.filter(a => a.isUnlocked).length}/{achievements.length} unlocked
+              </p>
+              <button
+                onClick={() => router.push('/achievements')}
+                className="mt-3 w-full bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors text-sm"
+              >
+                View All
+              </button>
+            </motion.div>
+          </div>
+        )}
 
         {/* Detailed Stats */}
         <motion.div
